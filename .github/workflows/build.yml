@@ -1,0 +1,157 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux
+            ext: ''
+            archive: tar.gz
+          - target: aarch64-linux
+            ext: ''
+            archive: tar.gz
+          - target: x86_64-macos
+            ext: ''
+            archive: tar.gz
+          - target: aarch64-macos
+            ext: ''
+            archive: tar.gz
+          - target: x86_64-windows
+            ext: '.exe'
+            archive: zip
+          - target: aarch64-windows
+            ext: '.exe'
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git describe
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            # Release: use tag version (strip 'v' prefix)
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            # Dev: VERSION file content + short commit hash
+            BASE=$(cat VERSION)
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            VERSION="${BASE}-dev+${SHORT_SHA}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Build
+        run: |
+          zig build -Doptimize=ReleaseSmall -Dtarget=${{ matrix.target }} -Dversion=${{ steps.version.outputs.version }}
+
+      - name: Prepare package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          mkdir -p package/clankergate
+          cp zig-out/bin/clankergate package/clankergate/
+          cp clankergate.json package/clankergate/
+          cd package/clankergate
+          ln -s clankergate git
+          cat > README.md << 'EOF'
+          # ClankerGate
+
+          A command gate for AI coding agents.
+
+          ## Installation
+
+          1. Place this directory on your PATH ahead of real git
+          2. Ensure clankergate.json is alongside the executables
+          3. Use `git` commands as normal - only whitelisted operations will execute
+
+          ## Documentation
+
+          Full documentation: https://github.com/fjzeit/clankergate
+
+          ## Quick Start
+
+          ```bash
+          # Add to PATH (adjust path as needed)
+          export PATH=/path/to/clankergate:$PATH
+
+          # Test
+          ./git status    # Should work
+          ./git push      # Should be blocked
+          ```
+          EOF
+
+      - name: Prepare package (Windows)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          mkdir -p package/clankergate
+          cp zig-out/bin/clankergate.exe package/clankergate/
+          cp clankergate.json package/clankergate/
+          cp package/clankergate/clankergate.exe package/clankergate/git.exe
+          cat > package/clankergate/README.md << 'EOF'
+          # ClankerGate
+
+          A command gate for AI coding agents.
+
+          ## Installation
+
+          1. Place this directory on your PATH ahead of real git
+          2. Ensure clankergate.json is alongside the executables
+          3. Use `git` commands as normal - only whitelisted operations will execute
+
+          ## Documentation
+
+          Full documentation: https://github.com/fjzeit/clankergate
+
+          ## Quick Start
+
+          ```cmd
+          REM Add to PATH (adjust path as needed)
+          set PATH=C:\path\to\clankergate;%PATH%
+
+          REM Test
+          git status    REM Should work
+          git push      REM Should be blocked
+          ```
+          EOF
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd package
+          tar -czvf ../clankergate-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz clankergate
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        run: |
+          cd package
+          7z a -tzip ../clankergate-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip clankergate
+
+      - name: Upload artifact (for testing)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: clankergate-${{ steps.version.outputs.version }}-${{ matrix.target }}
+          path: clankergate-${{ steps.version.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: clankergate-${{ steps.version.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

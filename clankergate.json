@@ -1,0 +1,23 @@
+{
+  "targets": {
+    "git": {
+      "executable": "/usr/bin/git",
+      "mode": "config",
+      "passive": ["-*", "--*"],
+      "passiveWithArg": ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"],
+      "passthrough": ["--version", "--help", "-v", "-h"],
+      "allowed": [
+        {"command": "status", "paramCount": "*"},
+        {"command": "log", "paramCount": "*"},
+        {"command": "diff", "paramCount": "*"},
+        {"command": "show", "paramCount": "*"},
+        {"command": "branch", "paramCount": "0"},
+        {"command": "tag", "paramCount": "0"},
+        {"command": "remote", "paramCount": "0"},
+        {"command": "remote show", "paramCount": "*"},
+        {"command": "blame", "paramCount": "*"},
+        {"command": "reflog", "paramCount": "*"}
+      ]
+    }
+  }
+}
