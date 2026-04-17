@@ -13,3 +13,6 @@
 - **ClankerGateError** - Explicit error set for ClankerGate operations (ConfigNotFound, InvalidConfig, UnknownTarget, etc.)
 - **RootConfig** - Top-level config struct containing a `targets` map
 - **TargetConfig** - Per-target config with `executable`, `mode`, `passive`, `passiveWithArg`, `passthrough`, `allowed`
+- **CLI mode** - When invoked as `clankergate` directly (not via symlink), enters management mode with subcommands: `version`, `help`, `list`, `healthcheck`
+- **HealthIssue** - Struct representing a mismatch between configured `executable` path and the actual path found on PATH; used by `healthcheck` and `fixConfig`
+- **findOnPath** - Function that searches PATH entries to locate the real executable for a given target name
