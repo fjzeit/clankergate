@@ -347,11 +347,11 @@ agent calls: git push origin main
         │   checks config rules  │
         └───────────┬────────────┘
                     │
-          ┌─────────┴──────────┐
-          │                    │
-        ALLOW               BLOCK
-          │                    │
-   /usr/bin/git push    exit 126 + policy message
+          ┌─────────┴──────────────────────┐
+          │                                │
+        ALLOW                            BLOCK
+          │                                │
+/usr/bin/git push origin main    exit 126 + policy message
 ```
 
 The release directory **must not** be on your permanent `PATH`. It is prepended only when launching an agent session, so interception is scoped to that session alone.
