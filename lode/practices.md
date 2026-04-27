@@ -20,6 +20,22 @@ cmd /C "set PATH=C:\clankergate-0.0.1;%PATH% && copilot"
 
 One binary, multiple identities. The binary reads `argv[0]` at runtime to determine which tool it is pretending to be. Symlinks (or copies on Windows) named after gated tools route through ClankerGate transparently.
 
+## Reproduce Through the Gated Name
+
+When verifying gating behavior, invoke the built artifact through the gated target name, not the system tool. On Linux/macOS that usually means the symlink in `zig-out/bin/`; on Windows it means a renamed copy such as `git.exe`.
+
+```powershell
+Copy-Item .\zig-out\bin\clankergate.exe .\zig-out\bin\git.exe -Force
+& .\zig-out\bin\git.exe --no-pager status
+```
+
+```mermaid
+flowchart LR
+    A[Run git.exe copy] --> B[argv0 = git]
+    B --> C[Load git target config]
+    C --> D[Gate or pass through]
+```
+
 ## Config Resolution Order
 
 1. `CLANKERGATE_CONFIG` env var is set AND target found AND mode != `default` → use it
@@ -34,7 +50,7 @@ Rules are matched by the longest prefix of non-flag args. A rule for `"remote ad
 
 ## Error Messages Instruct the Agent
 
-The POLICY BLOCK message is written to stderr and explicitly tells the AI agent not to retry, investigate, or attempt workarounds. This is intentional - the message is a signal to the agent's reasoning loop, not just a human-readable error.
+The POLICY BLOCK message is written to stderr and explicitly tells the AI agent not to retry, investigate, or attempt workarounds. This is intentional - the message is a signal to the agent's reasoning loop, not just a human-readable error. In gated mode, ClankerGate keeps this message attached to exit `126` even when an otherwise-allowed command cannot launch the real executable, so the agent still receives an explicit stop signal instead of a silent `126`.
 
 ## Windows: Copy Instead of Symlink
 

@@ -36,9 +36,11 @@ fn extractTargetName(argv0: []const u8) []const u8;
 fn loadConfig(allocator: std.mem.Allocator, io: std.Io, configPath: []const u8) !RootConfig;
 fn isCommandAllowed(allocator: std.mem.Allocator, nonFlagArgs: []const []const u8, config: *const TargetConfig) !bool;
 fn executeCommand(allocator: std.mem.Allocator, io: std.Io, executable: []const u8, args: []const []const u8) !u8;
+fn executeCommandOrDeny(allocator: std.mem.Allocator, io: std.Io, executable: []const u8, args: []const []const u8, command: []const u8) u8;
 fn findOnPath(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map, name: []const u8) ?[]const u8;
 fn parseStringArray(allocator: std.mem.Allocator, items: []const std.json.Value) ![]const []const u8;
 fn printDeniedMessage(command: []const u8) void;
+fn writeDeniedMessage(writer: *std.Io.Writer, command: []const u8) !void;
 
 // CLI mode functions (when invoked as "clankergate")
 fn runCli(allocator: std.mem.Allocator, io: std.Io, environ_map: std.process.Environ.Map, args_iter: *std.process.Args.Iterator, defaultConfigPath: []const u8) u8;
@@ -70,7 +72,8 @@ fn writeEscapedString(writer: *std.Io.Writer, s: []const u8) !void;
 - `isCommandAllowed()`: Longest-match strategy - tries longest prefix first, works down
 - `loadConfig()`: Config resolution - if `CLANKERGATE_CONFIG` is set but target has `mode=default`, falls through to default config
 - `runHealthcheck()`: Compares configured `executable` paths against actual locations found on PATH; `fix` flag rewrites config in place
-- `printDeniedMessage()`: Emits a POLICY BLOCK message instructing the agent not to retry; `command` param reserved for future use
+- `executeCommandOrDeny()`: Wraps gated subprocess execution so spawn/setup failures still return `126` with POLICY BLOCK text instead of silently returning the denial code
+- `printDeniedMessage()` / `writeDeniedMessage()`: Centralize POLICY BLOCK rendering so the same stderr guidance is used for explicit denials and gated execution failures; `command` param reserved for future use
 - Exit code 126 for all denied/blocked commands
 
 ## Key Concepts
@@ -116,14 +119,17 @@ flowchart TD
     C -->|yes| D[runCli]
     C -->|no| E[Load config with fallback]
     E --> F{Mode?}
-    F -->|passthrough| G[executeCommand]
+    F -->|passthrough| G[executeCommandOrDeny]
     F -->|block| H[printDeniedMessage / exit 126]
     F -->|config| I[CommandLine.parse]
     I --> J{Passthrough command?}
-    J -->|yes| G
-    J -->|no| K[isCommandAllowed]
-    K -->|allowed| G
-    K -->|denied| H
+    J -->|yes| K[executeCommandOrDeny]
+    J -->|no| L[isCommandAllowed]
+    L -->|allowed| M[executeCommandOrDeny]
+    L -->|denied| H
+    G --> M[Forward child exit code]
+    K --> M
+    M --> N[Return to caller]
 ```
 
 ```mermaid
@@ -144,3 +150,4 @@ flowchart LR
 - Target name is extracted from the symlink basename, not the real binary path
 - The healthcheck `fix` subcommand rewrites the config file in place using a custom JSON formatter that keeps `allowed` arrays compact
 - `findOnPath` skips entries where `stat` fails - a missing executable returns `null`, not an error
+- In gated mode, a subprocess spawn failure is surfaced as exit `126` with the same POLICY BLOCK text used for explicit policy denials

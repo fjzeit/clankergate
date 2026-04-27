@@ -342,6 +342,13 @@ fn executeCommand(allocator: std.mem.Allocator, io: std.Io, executable: []const 
     };
 }
 
+fn executeCommandOrDeny(allocator: std.mem.Allocator, io: std.Io, executable: []const u8, args: []const []const u8, command: []const u8) u8 {
+    return executeCommand(allocator, io, executable, args) catch {
+        printDeniedMessage(command);
+        return EXIT_DENIED;
+    };
+}
+
 pub fn main(init: std.process.Init) !u8 {
     // Use arena allocator - all allocations freed on scope exit
     var arena = std.heap.ArenaAllocator.init(init.gpa);
@@ -424,7 +431,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     // Passthrough mode: skip all checks
     if (target_ptr.mode == .passthrough) {
-        return executeCommand(allocator, io, target_ptr.executable, cmdArgs) catch return EXIT_DENIED;
+        return executeCommandOrDeny(allocator, io, target_ptr.executable, cmdArgs, "(passthrough mode)");
     }
 
     // Block mode: deny everything
@@ -438,7 +445,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     // Check for passthrough command (empty nonFlagArgs signals this)
     if (commandLine.nonFlagArgs.len == 0) {
-        return executeCommand(allocator, io, target_ptr.executable, cmdArgs) catch return EXIT_DENIED;
+        return executeCommandOrDeny(allocator, io, target_ptr.executable, cmdArgs, "(passthrough command)");
     }
 
     // Config mode: check whitelist
@@ -452,18 +459,26 @@ pub fn main(init: std.process.Init) !u8 {
         return EXIT_DENIED;
     }
 
-    return executeCommand(allocator, io, target_ptr.executable, cmdArgs) catch return EXIT_DENIED;
+    const command = std.mem.join(allocator, " ", commandLine.nonFlagArgs) catch "(allowed command)";
+    return executeCommandOrDeny(allocator, io, target_ptr.executable, cmdArgs, command);
 }
 
 fn printDeniedMessage(command: []const u8) void {
-    std.debug.print(
+    const stderr_writer = &std.debug.lockStderr(&.{}).file_writer.interface;
+    defer std.debug.unlockStderr();
+
+    writeDeniedMessage(stderr_writer, command) catch {};
+}
+
+fn writeDeniedMessage(writer: *std.Io.Writer, command: []const u8) !void {
+    try writer.writeAll(
         \\POLICY BLOCK: This operation is not permitted by the user's AI policy.
         \\Do not retry, investigate, or attempt workarounds.
         \\Inform the user what you attempted and wait for their instruction.
         \\The policy may change — do not assume future operations will also be blocked.
         \\
-    , .{});
-    _ = command; // Reserved for future use
+    );
+    _ = command;
 }
 
 // ============================================================================
@@ -983,4 +998,19 @@ test "isCommandAllowed - subcommand match" {
     const target = TargetConfig{ .executable = "/usr/bin/git", .allowed = @constCast(&rules) };
     const args = [_][]const u8{ "remote", "show", "origin" };
     try std.testing.expect(try isCommandAllowed(std.testing.allocator, &args, &target));
+}
+
+test "writeDeniedMessage - policy block text" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+
+    try writeDeniedMessage(&output.writer, "status");
+
+    try std.testing.expectEqualStrings(
+        \\POLICY BLOCK: This operation is not permitted by the user's AI policy.
+        \\Do not retry, investigate, or attempt workarounds.
+        \\Inform the user what you attempted and wait for their instruction.
+        \\The policy may change - do not assume future operations will also be blocked.
+        \\
+    , output.writer.buffered());
 }
